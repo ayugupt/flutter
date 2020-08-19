@@ -20,6 +20,7 @@ import '../base/utils.dart';
 import '../base/version.dart';
 import '../convert.dart';
 import '../doctor.dart';
+import '../features.dart';
 import '../globals.dart' as globals;
 import 'android_sdk.dart';
 import 'android_studio.dart';
@@ -44,17 +45,26 @@ final RegExp licenseNotAccepted = RegExp(r'licenses? not accepted', caseSensitiv
 final RegExp licenseAccepted = RegExp(r'All SDK package licenses accepted.');
 
 class AndroidWorkflow implements Workflow {
-  @override
-  bool get appliesToHostPlatform => true;
+  AndroidWorkflow({
+    @required AndroidSdk androidSdk,
+    @required FeatureFlags featureFlags,
+  }) : _androidSdk = androidSdk,
+       _featureFlags = featureFlags;
+
+  final AndroidSdk _androidSdk;
+  final FeatureFlags _featureFlags;
 
   @override
-  bool get canListDevices => getAdbPath(globals.androidSdk) != null;
+  bool get appliesToHostPlatform => _featureFlags.isAndroidEnabled;
 
   @override
-  bool get canLaunchDevices => globals.androidSdk != null && globals.androidSdk.validateSdkWellFormed().isEmpty;
+  bool get canListDevices => getAdbPath(_androidSdk) != null;
 
   @override
-  bool get canListEmulators => getEmulatorPath(globals.androidSdk) != null;
+  bool get canLaunchDevices => _androidSdk != null && _androidSdk.validateSdkWellFormed().isEmpty;
+
+  @override
+  bool get canListEmulators => getEmulatorPath(_androidSdk) != null;
 }
 
 class AndroidValidator extends DoctorValidator {

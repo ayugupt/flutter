@@ -52,6 +52,13 @@ Future<vm_service.VmService> _kDefaultFuchsiaIsolateDiscoveryConnector(Uri uri) 
   return connectToVmService(uri);
 }
 
+Future<void> _kDefaultDartDevelopmentServiceStarter(
+  Device device,
+  Uri observatoryUri,
+) async {
+  await device.dds.startDartDevelopmentService(observatoryUri, true);
+}
+
 /// Read the log for a particular device.
 class _FuchsiaLogReader extends DeviceLogReader {
   _FuchsiaLogReader(this._device, this._systemClock, [this._app]);
@@ -237,19 +244,31 @@ class FuchsiaDevice extends Device {
   bool get supportsStartPaused => false;
 
   @override
-  Future<bool> isAppInstalled(ApplicationPackage app) async => false;
+  Future<bool> isAppInstalled(
+    ApplicationPackage app, {
+    String userIdentifier,
+  }) async => false;
 
   @override
   Future<bool> isLatestBuildInstalled(ApplicationPackage app) async => false;
 
   @override
-  Future<bool> installApp(ApplicationPackage app) => Future<bool>.value(false);
+  Future<bool> installApp(
+    ApplicationPackage app, {
+    String userIdentifier,
+  }) => Future<bool>.value(false);
 
   @override
-  Future<bool> uninstallApp(ApplicationPackage app) async => false;
+  Future<bool> uninstallApp(
+    ApplicationPackage app, {
+    String userIdentifier,
+  }) async => false;
 
   @override
   bool isSupported() => true;
+
+  @override
+  bool supportsRuntimeMode(BuildMode buildMode) => buildMode != BuildMode.jitRelease;
 
   @override
   Future<LaunchResult> startApp(
@@ -260,6 +279,7 @@ class FuchsiaDevice extends Device {
     Map<String, dynamic> platformArgs,
     bool prebuiltApplication = false,
     bool ipv6 = false,
+    String userIdentifier,
   }) async {
     if (!prebuiltApplication) {
       await buildFuchsia(fuchsiaProject: FlutterProject.current().fuchsia,
@@ -431,7 +451,10 @@ class FuchsiaDevice extends Device {
   }
 
   @override
-  Future<bool> stopApp(covariant FuchsiaApp app) async {
+  Future<bool> stopApp(
+    covariant FuchsiaApp app, {
+    String userIdentifier,
+  }) async {
     final int appKey = await FuchsiaTilesCtl.findAppKey(this, app.id);
     if (appKey != -1) {
       if (!await fuchsiaDeviceTools.tilesCtl.remove(this, appKey)) {
@@ -679,6 +702,7 @@ class FuchsiaIsolateDiscoveryProtocol {
     this._device,
     this._isolateName, [
     this._vmServiceConnector = _kDefaultFuchsiaIsolateDiscoveryConnector,
+    this._ddsStarter = _kDefaultDartDevelopmentServiceStarter,
     this._pollOnce = false,
   ]);
 
@@ -688,6 +712,7 @@ class FuchsiaIsolateDiscoveryProtocol {
   final String _isolateName;
   final Completer<Uri> _foundUri = Completer<Uri>();
   final Future<vm_service.VmService> Function(Uri) _vmServiceConnector;
+  final Future<void> Function(Device, Uri) _ddsStarter;
   // whether to only poll once.
   final bool _pollOnce;
   Timer _pollingTimer;
@@ -730,6 +755,7 @@ class FuchsiaIsolateDiscoveryProtocol {
         final int localPort = await _device.portForwarder.forward(port);
         try {
           final Uri uri = Uri.parse('http://[$_ipv6Loopback]:$localPort');
+          await _ddsStarter(_device, uri);
           service = await _vmServiceConnector(uri);
           _ports[port] = service;
         } on SocketException catch (err) {

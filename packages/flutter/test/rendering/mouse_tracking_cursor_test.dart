@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.8
+
+import 'dart:collection' show LinkedHashMap;
 import 'dart:ui' as ui;
 import 'dart:ui' show PointerChange;
 
@@ -23,12 +26,14 @@ void _ensureTestGestureBinding() {
   assert(GestureBinding.instance != null);
 }
 
+typedef SimpleAnnotationFinder = Iterable<MouseTrackerAnnotation> Function(Offset offset);
+
 void main() {
   MethodCallHandler _methodCallHandler;
 
   // Only one of `logCursors` and `cursorHandler` should be specified.
   void _setUpMouseTracker({
-    MouseDetectorAnnotationFinder annotationFinder,
+    SimpleAnnotationFinder annotationFinder,
     List<_CursorUpdateDetails> logCursors,
     MethodCallHandler cursorHandler,
   }) {
@@ -41,7 +46,11 @@ void main() {
       : cursorHandler;
     final MouseTracker mouseTracker = MouseTracker(
       GestureBinding.instance.pointerRouter,
-      annotationFinder,
+      (Offset offset) => LinkedHashMap<MouseTrackerAnnotation, Matrix4>.fromEntries(
+        annotationFinder(offset).map(
+          (MouseTrackerAnnotation annotation) => MapEntry<MouseTrackerAnnotation, Matrix4>(annotation, Matrix4.identity()),
+        ),
+      ),
     );
     RendererBinding.instance.initMouseTracker(mouseTracker);
   }
@@ -496,7 +505,7 @@ class _TestGestureFlutterBinding extends BindingBase
   @override
   SchedulerPhase get schedulerPhase => _overridePhase ?? super.schedulerPhase;
 
-  // Mannually schedule a postframe check.
+  // Manually schedule a post-frame check.
   //
   // In real apps this is done by the renderer binding, but in tests we have to
   // bypass the phase assertion of [MouseTracker.schedulePostFrameCheck].

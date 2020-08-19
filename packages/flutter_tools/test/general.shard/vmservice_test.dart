@@ -13,7 +13,7 @@ import 'package:flutter_tools/src/base/logger.dart';
 import 'package:flutter_tools/src/device.dart';
 import 'package:flutter_tools/src/version.dart';
 import 'package:flutter_tools/src/vmservice.dart';
-import 'package:quiver/testing/async.dart';
+import 'package:fake_async/fake_async.dart';
 
 import '../src/common.dart';
 import '../src/context.dart';
@@ -103,6 +103,8 @@ void main() {
       null,
       null,
       null,
+      null,
+      null,
       mockVMService,
     );
 
@@ -121,6 +123,8 @@ void main() {
       null,
       null,
       reloadMethod,
+      null,
+      null,
       mockVMService,
     );
 
@@ -139,6 +143,8 @@ void main() {
       null,
       mockDevice,
       null,
+      null,
+      null,
       mockVMService,
     );
 
@@ -147,9 +153,49 @@ void main() {
     Logger: () => BufferLogger.test()
   });
 
+  testUsingContext('VmService registers flutterGetSkSL service', () async {
+    final MockVMService mockVMService = MockVMService();
+    setUpVmService(
+      null,
+      null,
+      null,
+      null,
+      null,
+      () async => 'hello',
+      null,
+      mockVMService,
+    );
+
+    verify(mockVMService.registerService('flutterGetSkSL', 'Flutter Tools')).called(1);
+  }, overrides: <Type, Generator>{
+    Logger: () => BufferLogger.test()
+  });
+
+  testUsingContext('VmService registers flutterPrintStructuredErrorLogMethod', () async {
+    final MockVMService mockVMService = MockVMService();
+    when(mockVMService.onExtensionEvent).thenAnswer((Invocation invocation) {
+      return const Stream<vm_service.Event>.empty();
+    });
+    setUpVmService(
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      (vm_service.Event event) async => 'hello',
+      mockVMService,
+    );
+    verify(mockVMService.streamListen(vm_service.EventStreams.kExtension)).called(1);
+  }, overrides: <Type, Generator>{
+    Logger: () => BufferLogger.test()
+  });
+
   testUsingContext('VMService returns correct FlutterVersion', () async {
     final MockVMService mockVMService = MockVMService();
     setUpVmService(
+      null,
+      null,
       null,
       null,
       null,
@@ -348,6 +394,23 @@ void main() {
       isEmpty,
     );
     expect(fakeVmServiceHost.hasRemainingExpectations, false);
+  });
+
+  testWithoutContext('expandos are null safe', () {
+    vm_service.VmService vmService;
+
+    expect(vmService.httpAddress, null);
+    expect(vmService.wsAddress, null);
+  });
+
+  testWithoutContext('Can process log events from the vm service', () {
+    final vm_service.Event event = vm_service.Event(
+      bytes: base64.encode(utf8.encode('Hello There\n')),
+      timestamp: 0,
+      kind: vm_service.EventKind.kLogging,
+    );
+
+    expect(processVmServiceMessage(event), 'Hello There');
   });
 }
 

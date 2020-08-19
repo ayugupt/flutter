@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.8
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import 'button.dart';
@@ -98,6 +101,7 @@ import 'theme_data.dart';
 ///  * [InkWell], which implements the ink splash part of a flat button.
 ///  * [RawMaterialButton], the widget this widget is based on.
 ///  * <https://material.io/design/components/buttons.html>
+///  * Cookbook: [Build a form with validation](https://flutter.dev/docs/cookbook/forms/validation)
 class RaisedButton extends MaterialButton {
   /// Create a filled button.
   ///
@@ -110,6 +114,7 @@ class RaisedButton extends MaterialButton {
     @required VoidCallback onPressed,
     VoidCallback onLongPress,
     ValueChanged<bool> onHighlightChanged,
+    MouseCursor mouseCursor,
     ButtonTextTheme textTheme,
     Color textColor,
     Color disabledTextColor,
@@ -146,6 +151,7 @@ class RaisedButton extends MaterialButton {
          onPressed: onPressed,
          onLongPress: onLongPress,
          onHighlightChanged: onHighlightChanged,
+         mouseCursor: mouseCursor,
          textTheme: textTheme,
          textColor: textColor,
          disabledTextColor: disabledTextColor,
@@ -185,6 +191,7 @@ class RaisedButton extends MaterialButton {
     @required VoidCallback onPressed,
     VoidCallback onLongPress,
     ValueChanged<bool> onHighlightChanged,
+    MouseCursor mouseCursor,
     ButtonTextTheme textTheme,
     Color textColor,
     Color disabledTextColor,
@@ -217,6 +224,7 @@ class RaisedButton extends MaterialButton {
       onPressed: onPressed,
       onLongPress: onLongPress,
       onHighlightChanged: onHighlightChanged,
+      mouseCursor: mouseCursor,
       clipBehavior: clipBehavior,
       fillColor: buttonTheme.getFillColor(this),
       textStyle: theme.textTheme.button.copyWith(color: buttonTheme.getTextColor(this)),
@@ -262,6 +270,7 @@ class _RaisedButtonWithIcon extends RaisedButton with MaterialButtonWithIconMixi
     @required VoidCallback onPressed,
     VoidCallback onLongPress,
     ValueChanged<bool> onHighlightChanged,
+    MouseCursor mouseCursor,
     ButtonTextTheme textTheme,
     Color textColor,
     Color disabledTextColor,
@@ -296,6 +305,7 @@ class _RaisedButtonWithIcon extends RaisedButton with MaterialButtonWithIconMixi
          onPressed: onPressed,
          onLongPress: onLongPress,
          onHighlightChanged: onHighlightChanged,
+         mouseCursor: mouseCursor,
          textTheme: textTheme,
          textColor: textColor,
          disabledTextColor: disabledTextColor,

@@ -65,6 +65,11 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
     featureFlags: featureFlags,
   );
 
+  final MacOSWorkflow macOSWorkflow = MacOSWorkflow(
+    platform: globals.platform,
+    featureFlags: featureFlags,
+  );
+
   @override
   List<DoctorValidator> get validators {
     if (_validators != null) {
@@ -76,6 +81,7 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
       ...IntelliJValidator.installedValidators,
       ...VsCodeValidator.installedValidators,
     ];
+    final ProxyValidator proxyValidator = ProxyValidator(platform: globals.platform);
     _validators = <DoctorValidator>[
       FlutterValidator(),
       if (androidWorkflow.appliesToHostPlatform)
@@ -87,10 +93,10 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
           chromiumLauncher: ChromiumLauncher(
             browserFinder: findChromeExecutable,
             fileSystem: globals.fs,
-            logger: globals.logger,
             operatingSystemUtils: globals.os,
             platform:  globals.platform,
             processManager: globals.processManager,
+            logger: globals.logger,
           ),
           platform: globals.platform,
         ),
@@ -105,10 +111,13 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
         ...ideValidators
       else
         NoIdeValidator(),
-      if (ProxyValidator.shouldShow)
-        ProxyValidator(),
-      if (deviceManager.canListAnything)
-        DeviceValidator(),
+      if (proxyValidator.shouldShow)
+        proxyValidator,
+      if (globals.deviceManager.canListAnything)
+        DeviceValidator(
+          deviceManager: globals.deviceManager,
+          userMessages: globals.userMessages,
+        ),
     ];
     return _validators;
   }
@@ -915,50 +924,84 @@ class IntelliJValidatorOnMac extends IntelliJValidator {
     }
 
     final List<String> split = version.split('.');
-
     if (split.length < 2) {
       return null;
     }
-
     final String major = split[0];
     final String minor = split[1];
-    _pluginsPath = globals.fs.path.join(
-      globals.fsUtils.homeDirPath,
+
+    final String homeDirPath = globals.fsUtils.homeDirPath;
+    String pluginsPath = globals.fs.path.join(
+      homeDirPath,
       'Library',
       'Application Support',
+      'JetBrains',
       '$id$major.$minor',
+      'plugins',
     );
+    // Fallback to legacy location from < 2020.
+    if (!globals.fs.isDirectorySync(pluginsPath)) {
+      pluginsPath = globals.fs.path.join(
+        homeDirPath,
+        'Library',
+        'Application Support',
+        '$id$major.$minor',
+      );
+    }
+    _pluginsPath = pluginsPath;
+
     return _pluginsPath;
   }
   String _pluginsPath;
 }
 
 class DeviceValidator extends DoctorValidator {
-  DeviceValidator() : super('Connected device');
+  // TODO(jmagman): Make required once g3 rolls and is updated.
+  DeviceValidator({
+    DeviceManager deviceManager,
+    UserMessages userMessages,
+  }) : _deviceManager = deviceManager ?? globals.deviceManager,
+       _userMessages = userMessages ?? globals.userMessages,
+       super('Connected device');
+
+  final DeviceManager _deviceManager;
+  final UserMessages _userMessages;
 
   @override
   String get slowWarning => 'Scanning for devices is taking a long time...';
 
   @override
   Future<ValidationResult> validate() async {
-    final List<Device> devices = await deviceManager.getAllConnectedDevices();
-    List<ValidationMessage> messages;
-    if (devices.isEmpty) {
-      final List<String> diagnostics = await deviceManager.getDeviceDiagnostics();
-      if (diagnostics.isNotEmpty) {
-        messages = diagnostics.map<ValidationMessage>((String message) => ValidationMessage(message)).toList();
-      } else {
-        messages = <ValidationMessage>[ValidationMessage.hint(userMessages.devicesMissing)];
-      }
-    } else {
-      messages = await Device.descriptions(devices)
+    final List<Device> devices = await _deviceManager.getAllConnectedDevices();
+    List<ValidationMessage> installedMessages = <ValidationMessage>[];
+    if (devices.isNotEmpty) {
+      installedMessages = await Device.descriptions(devices)
           .map<ValidationMessage>((String msg) => ValidationMessage(msg)).toList();
     }
 
+    List<ValidationMessage> diagnosticMessages = <ValidationMessage>[];
+    final List<String> diagnostics = await _deviceManager.getDeviceDiagnostics();
+    if (diagnostics.isNotEmpty) {
+      diagnosticMessages = diagnostics.map<ValidationMessage>((String message) => ValidationMessage.hint(message)).toList();
+    } else if (devices.isEmpty) {
+      diagnosticMessages = <ValidationMessage>[ValidationMessage.hint(_userMessages.devicesMissing)];
+    }
+
     if (devices.isEmpty) {
-      return ValidationResult(ValidationType.notAvailable, messages);
+      return ValidationResult(ValidationType.notAvailable, diagnosticMessages);
+    } else if (diagnostics.isNotEmpty) {
+      installedMessages.addAll(diagnosticMessages);
+      return ValidationResult(
+        ValidationType.installed,
+        installedMessages,
+        statusInfo: _userMessages.devicesAvailable(devices.length)
+      );
     } else {
-      return ValidationResult(ValidationType.installed, messages, statusInfo: userMessages.devicesAvailable(devices.length));
+      return ValidationResult(
+        ValidationType.installed,
+        installedMessages,
+        statusInfo: _userMessages.devicesAvailable(devices.length)
+      );
     }
   }
 }

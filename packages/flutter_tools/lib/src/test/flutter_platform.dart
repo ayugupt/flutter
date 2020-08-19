@@ -5,14 +5,14 @@
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:package_config/package_config.dart';
 import 'package:stream_channel/stream_channel.dart';
-import 'package:vm_service/vm_service.dart' as vm_service;
-
 import 'package:test_api/src/backend/suite_platform.dart'; // ignore: implementation_imports
+import 'package:test_core/src/runner/environment.dart'; // ignore: implementation_imports
+import 'package:test_core/src/runner/plugin/platform_helpers.dart'; // ignore: implementation_imports
 import 'package:test_core/src/runner/runner_suite.dart'; // ignore: implementation_imports
 import 'package:test_core/src/runner/suite.dart'; // ignore: implementation_imports
-import 'package:test_core/src/runner/plugin/platform_helpers.dart'; // ignore: implementation_imports
-import 'package:test_core/src/runner/environment.dart'; // ignore: implementation_imports
+import 'package:vm_service/vm_service.dart' as vm_service;
 
 import '../base/common.dart';
 import '../base/file_system.dart';
@@ -20,6 +20,7 @@ import '../base/io.dart';
 import '../build_info.dart';
 import '../compile.dart';
 import '../convert.dart';
+import '../dart/language_version.dart';
 import '../dart/package_map.dart';
 import '../globals.dart' as globals;
 import '../project.dart';
@@ -88,7 +89,10 @@ FlutterPlatform installHook({
   FlutterProject flutterProject,
   String icudtlPath,
   PlatformPluginRegistration platformPluginRegistration,
-  @required List<String> dartExperiments,
+  List<String> extraFrontEndOptions,
+  // Deprecated, use extraFrontEndOptions.
+  List<String> dartExperiments,
+  bool nullAssertions = false,
 }) {
   assert(testWrapper != null);
   assert(enableObservatory || (!startPaused && observatoryPort == null));
@@ -121,7 +125,8 @@ FlutterPlatform installHook({
     projectRootDirectory: projectRootDirectory,
     flutterProject: flutterProject,
     icudtlPath: icudtlPath,
-    dartExperiments: dartExperiments,
+    extraFrontEndOptions: extraFrontEndOptions,
+    nullAssertions: nullAssertions,
   );
   platformPluginRegistration(platform);
   return platform;
@@ -149,6 +154,7 @@ String generateTestBootstrap({
   @required InternetAddress host,
   File testConfigFile,
   bool updateGoldens = false,
+  String languageVersionHeader = '',
   bool nullSafety = false,
 }) {
   assert(testUrl != null);
@@ -162,6 +168,7 @@ String generateTestBootstrap({
 
   final StringBuffer buffer = StringBuffer();
   buffer.write('''
+$languageVersionHeader
 import 'dart:async';
 import 'dart:convert';  // ignore: dart_convert_import
 import 'dart:io';  // ignore: dart_io_import
@@ -179,17 +186,11 @@ import '$testUrl' as test;
 import '${Uri.file(testConfigFile.path)}' as test_config;
 ''');
   }
-  // This type is sensitive to the non-nullable experiment.
-  final String beforeLoadTypedef = nullSafety
-    ? 'Future<dynamic> Function()?'
-    : 'Future<dynamic> Function()';
   buffer.write('''
 
 /// Returns a serialized test suite.
-StreamChannel<dynamic> serializeSuite(Function getMain(),
-    {bool hidePrints = true, $beforeLoadTypedef beforeLoad}) {
-  return RemoteListener.start(getMain,
-      hidePrints: hidePrints, beforeLoad: beforeLoad);
+StreamChannel<dynamic> serializeSuite(Function getMain()) {
+  return RemoteListener.start(getMain);
 }
 
 /// Capture any top-level errors (mostly lazy syntax errors, since other are
@@ -269,7 +270,8 @@ class FlutterPlatform extends PlatformPlugin {
     this.projectRootDirectory,
     this.flutterProject,
     this.icudtlPath,
-    @required this.dartExperiments,
+    this.nullAssertions = false,
+    @required this.extraFrontEndOptions,
   }) : assert(shellPath != null);
 
   final String shellPath;
@@ -290,7 +292,8 @@ class FlutterPlatform extends PlatformPlugin {
   final Uri projectRootDirectory;
   final FlutterProject flutterProject;
   final String icudtlPath;
-  final List<String> dartExperiments;
+  final List<String> extraFrontEndOptions;
+  final bool nullAssertions;
 
   Directory fontsDirectory;
 
@@ -400,11 +403,17 @@ class FlutterPlatform extends PlatformPlugin {
   @visibleForTesting
   Future<HttpServer> bind(InternetAddress host, int port) => HttpServer.bind(host, port);
 
+  PackageConfig _packageConfig;
+
   Future<_AsyncError> _startTest(
     String testPath,
     StreamChannel<dynamic> controller,
     int ourTestCount,
   ) async {
+    _packageConfig ??= await loadPackageConfigWithLogging(
+      globals.fs.file(globalPackagesPath),
+      logger: globals.logger,
+    );
     globals.printTrace('test $ourTestCount: starting test $testPath');
 
     _AsyncError outOfBandError; // error that we couldn't send to the harness that we need to send via our future
@@ -459,7 +468,7 @@ class FlutterPlatform extends PlatformPlugin {
 
       if (precompiledDillPath == null && precompiledDillFiles == null) {
         // Lazily instantiate compiler so it is built only if it is actually used.
-        compiler ??= TestCompiler(buildMode, trackWidgetCreation, flutterProject, dartExperiments);
+        compiler ??= TestCompiler(buildMode, trackWidgetCreation, flutterProject, extraFrontEndOptions);
         mainDart = await compiler.compile(globals.fs.file(mainDart).uri);
 
         if (mainDart == null) {
@@ -509,7 +518,7 @@ class FlutterPlatform extends PlatformPlugin {
       Uri processObservatoryUri;
       _pipeStandardStreamsToConsole(
         process,
-        reportObservatoryUri: (Uri detectedUri) {
+        reportObservatoryUri: (Uri detectedUri) async {
           assert(processObservatoryUri == null);
           assert(explicitObservatoryPort == null ||
               explicitObservatoryPort == detectedUri.port);
@@ -526,9 +535,9 @@ class FlutterPlatform extends PlatformPlugin {
             globals.printTrace('Connecting to service protocol: $processObservatoryUri');
             final Future<vm_service.VmService> localVmService = connectToVmService(processObservatoryUri,
               compileExpression: _compileExpressionService);
-            localVmService.then((vm_service.VmService vmservice) {
+            unawaited(localVmService.then((vm_service.VmService vmservice) {
               globals.printTrace('Successfully connected to service protocol: $processObservatoryUri');
-            });
+            }));
           }
           gotProcessObservatoryUri.complete();
           watcher?.handleStartedProcess(
@@ -746,14 +755,19 @@ class FlutterPlatform extends PlatformPlugin {
     Uri testUrl,
   }) {
     assert(testUrl.scheme == 'file');
+    final File file = globals.fs.file(testUrl);
     return generateTestBootstrap(
       testUrl: testUrl,
       testConfigFile: findTestConfigFile(globals.fs.file(testUrl)),
       host: host,
       updateGoldens: updateGoldens,
-      nullSafety: dartExperiments.contains('non-nullable'),
+      languageVersionHeader: determineLanguageVersion(
+        file,
+        _packageConfig[flutterProject?.manifest?.appName],
+      ),
     );
   }
+
 
   File _cachedFontConfig;
 
@@ -834,6 +848,8 @@ class FlutterPlatform extends PlatformPlugin {
       '--non-interactive',
       '--use-test-fonts',
       '--packages=$packages',
+      if (nullAssertions)
+        '--dart-flags=--null_assertions',
       testPath,
     ];
 
@@ -860,8 +876,9 @@ class FlutterPlatform extends PlatformPlugin {
   void _pipeStandardStreamsToConsole(
     Process process, {
     void startTimeoutTimer(),
-    void reportObservatoryUri(Uri uri),
+    Future<void> reportObservatoryUri(Uri uri),
   }) {
+
     const String observatoryString = 'Observatory listening on ';
     for (final Stream<List<int>> stream in <Stream<List<int>>>[
       process.stderr,
@@ -871,7 +888,7 @@ class FlutterPlatform extends PlatformPlugin {
           .transform<String>(utf8.decoder)
           .transform<String>(const LineSplitter())
           .listen(
-        (String line) {
+        (String line) async {
           if (line == _kStartTimeoutTimerMessage) {
             if (startTimeoutTimer != null) {
               startTimeoutTimer();
@@ -884,7 +901,7 @@ class FlutterPlatform extends PlatformPlugin {
             try {
               final Uri uri = Uri.parse(line.substring(observatoryString.length));
               if (reportObservatoryUri != null) {
-                reportObservatoryUri(uri);
+                await reportObservatoryUri(uri);
               }
             } on Exception catch (error) {
               globals.printError('Could not parse shell observatory port message: $error');

@@ -16,7 +16,7 @@ assignees: ''
       * https://api.flutter.dev/
       * https://stackoverflow.com/questions/tagged/flutter?sort=frequent
 
-     If you have found a performance problem, then fill our the template below.
+     If you have found a performance problem, then fill out the template below.
      Please read our guide to filing a bug first: https://flutter.dev/docs/resources/bug-reports
 -->
 
@@ -45,7 +45,7 @@ assignees: ''
 5.  Open Observatory and save a timeline trace of the performance issue
      so we know which functions might be causing it. See "How to Collect
      and Read Timeline Traces" on this blog post:
-       https://medium.com/flutter-io/profiling-flutter-applications-using-the-timeline-a1a434964af03#a499
+       https://medium.com/flutter/profiling-flutter-applications-using-the-timeline-a1a434964af3#a499
 -->
 
 <!--
